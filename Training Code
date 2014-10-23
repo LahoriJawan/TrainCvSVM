@@ -1,0 +1,251 @@
+
+//   svmHeader.h
+
+
+#include <opencv2/core/core.hpp>
+//#include <opencv2/highgui/highgui.hpp>
+#include <vector>
+#include <string>
+
+using namespace std;
+
+class TrainCvSVM : public CvSVM { 
+public:
+	//TrainCvSVM();
+	TrainCvSVM(string);
+	vector<float>   getWeightVector(const int);
+	void extractPOSfeatures(string,string,int,int);
+	void extractNEGfeatures(string,string,int,int);
+	void extractTESTfeatures(string,string,int,int);
+	void storeDATAfeatures(vector<float>&);
+	void storeTESTfeatures(vector<float>&);
+	void vectorTOMat();
+	void cvSVM();
+
+private:
+	void filenames(string, string,int, int);
+	void extractFeatures(string,int);
+	vector<string>filename;
+	vector<float>allFeatures;
+	vector<float>testFeatures;
+	bool storagecheck;
+	cv::Mat dataMat,labelMat;
+	int Pstrt,Plst,Nstrt,Nlst,totalSamples;
+	CvSVMParams params;
+	CvSVM svm;
+	
+};
+
+
+//  svmSource.cpp
+
+
+
+#include<opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include "svmHeader.h"
+
+using namespace cv;
+using namespace std;
+
+TrainCvSVM::TrainCvSVM(string intro)
+{
+	cout<<intro<<endl<<"This training may take more than half an hour for 1500 images."<<"Please BE PATIENT"<<endl<<"Press any Key to proceed";
+	cin.get();
+}
+
+void TrainCvSVM::filenames(string name, string extension,int firstNumber,int lastNumber)
+{
+	filename.clear();	// Re-initializes vector to assure correct files reterieval
+	for(unsigned int fileNumber=firstNumber;fileNumber<=lastNumber;fileNumber++)
+	{
+		stringstream stream;
+		stream<<name<<fileNumber<<"."<<extension;
+		string fullName = stream.str();
+		filename.push_back(fullName);
+		
+	}
+}
+
+void TrainCvSVM::extractPOSfeatures(string nm, string ext, int strt, int lst)
+{
+	Pstrt = strt;
+	Plst = lst;
+	filenames(nm, ext, strt, lst);
+	string ft="POS";
+	extractFeatures(ft,0);
+	 
+}
+
+void TrainCvSVM::extractNEGfeatures(string nm, string ext, int strt, int lst)
+{
+	Nstrt = strt;
+	Nlst = lst;
+	filenames(nm, ext, strt, lst);
+	string ft="NEG";
+	extractFeatures(ft,0);
+	
+}
+
+void TrainCvSVM::extractTESTfeatures(string nm, string ext, int strt, int ed)
+{
+	
+	filenames(nm, ext, strt, ed);	   //function stores names in vector i.e. filename
+	string ft="TES";
+	extractFeatures(ft,1);
+	
+}
+
+void TrainCvSVM::extractFeatures(string featureType, int callCheck)
+{
+	//int check;
+	HOGDescriptor hog;
+	
+	vector<float>hogfeatures;
+	vector<Point>locations;
+	//string sub = featureType.substr(0,3);		// Extracts substring 
+	if (callCheck ==0)
+	{
+		cout<<"Data is being processed...\n";
+		for(unsigned int file = 0; file<filename.size();file++)
+		{
+			storagecheck=true;
+			Mat image = imread(filename[file],1);
+			hog.compute(image, hogfeatures, Size(0,0), Size(0,0), locations);
+			storeDATAfeatures(hogfeatures);
+			hogfeatures.clear();
+		}
+		
+	}
+	else
+	{
+		cout<<"Test is being processed...\n";
+		for(unsigned int file = 0; file<filename.size();file++)
+		{
+			storagecheck=false;
+			Mat image = imread(filename[file],1);
+			hog.compute(image, hogfeatures, Size(0,0), Size(0,0), locations);
+			storeTESTfeatures(hogfeatures);
+			hogfeatures.clear();
+		}
+	}
+
+}
+
+void TrainCvSVM::storeDATAfeatures(vector<float>&features)
+{
+	for(unsigned int position=0;position<features.size();position++)
+	{
+		 allFeatures.push_back(features[position]);
+		 
+	}
+	
+}
+
+void TrainCvSVM::storeTESTfeatures(vector<float>&features)
+{
+	for(unsigned int position=0;position<features.size();position++)
+	{
+		testFeatures.push_back(features[position]);
+		
+	}
+	
+}
+
+void TrainCvSVM::vectorTOMat()
+{
+	totalSamples = 1569;  //Plst+Nlst;
+	cout<<allFeatures.size(); 
+	cout<<testFeatures.size(); 
+	dataMat.push_back(cv::Mat(1,allFeatures.size(),CV_32FC1,allFeatures.data(),true));
+	dataMat = dataMat.reshape(0,totalSamples);
+	labelMat.push_back(cv::Mat(totalSamples,1,CV_32FC1));
+	labelMat.rowRange(Nstrt,Nlst).setTo(1);//cout<<"Pos Labels";
+	labelMat.rowRange(Pstrt,Plst).setTo(2);//cout<<"Neg Labels";
+	
+	cout<<dataMat.size();cout<<labelMat.size();
+	cvWaitKey(33);
+}
+
+void TrainCvSVM::cvSVM()
+{
+/*	cin.get();
+	for (int row=0;row<totalSamples;row++)
+	{
+		cout<<labelMat.at<float>(row,0)<<"\t"<<row<<endl;
+	}*/
+	
+	
+    params.svm_type    = SVM::C_SVC;
+    params.C           = 0.1;
+    params.kernel_type = SVM::LINEAR;
+    params.term_crit   = TermCriteria(CV_TERMCRIT_ITER, (int)1e7, 1e-6);
+	cout<<"Training Started, Please Wait..."; 
+	CvSVM svm;
+    svm.train(dataMat, labelMat, Mat(), Mat(), params);
+	svm.save("TraomedFile.xml");
+    cout << "Finished training process..." << endl;
+
+	
+}
+
+vector<float>
+TrainCvSVM::getWeightVector(const int descriptorSize)
+{
+	vector<float> svmWeightsVec(descriptorSize+1);
+    int numSupportVectors = svm.get_support_vector_count();
+	cout<<"No. of SV  "<<numSupportVectors ; 
+    //this is protected, but can access due to inheritance rules 
+	const CvSVMDecisionFunc *dec = CvSVM::decision_func;
+
+    const float *supportVector;
+    float* svmWeight = &svmWeightsVec[0];
+	cout<<endl<<"LLLLLLLLLLLLLl";
+    for (int i = 0; i < numSupportVectors; ++i)
+    {
+		cin.get();
+		double alphas = *(dec[0].alpha+i);// *(dec[0].alpha + i);cin.get();
+        supportVector = svm.get_support_vector(i);
+        for(int j=0;j<descriptorSize;j++)
+        {
+            *(svmWeight + j) += alphas * *(supportVector+j);
+        }
+    }
+    *(svmWeight + descriptorSize) = - dec[0].rho;
+
+    return svmWeightsVec;
+}
+
+
+//  svmMain.cpp
+
+
+#include <opencv2\opencv.hpp>
+#include <opencv2\imgproc\imgproc.hpp>
+
+#include <iostream>
+#include "svmHeader.h"
+
+using namespace std;
+
+
+int main()
+{
+
+	
+	TrainCvSVM train("This program is made to Train Custom HOG features  using OpenCV SVM\n");
+	train.extractPOSfeatures("negative","jpg",779,1569);	// Also stores features
+	train.extractNEGfeatures("negative","jpg",1,778);				//
+	train.extractTESTfeatures("t","jpg",1,68);					   //
+	train.vectorTOMat();  
+	train.cvSVM();
+	//train.load("Class2.xml");
+	vector<float>res= train.getWeightVector(3780);
+		
+	cin.get();
+	return (0);
+}
